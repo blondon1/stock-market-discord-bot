@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import sqlite3
 import requests
+import yfinance as yf
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Discord bot token (replace with your bot's token)
@@ -11,8 +12,12 @@ DISCORD_TOKEN = 'your_discord_bot_token'
 ALPHA_VANTAGE_API_KEY = 'your_alpha_vantage_api_key'
 NEWS_API_KEY = 'your_news_api_key'
 
-# Set up bot with a command prefix
-bot = commands.Bot(command_prefix='/')
+# Enable necessary intents
+intents = discord.Intents.default()
+intents.message_content = True  # This is necessary to read message content
+
+# Set up bot with command prefix and intents
+bot = commands.Bot(command_prefix='/', intents=intents)
 
 # SQLite setup to store user watchlists
 conn = sqlite3.connect('watchlists.db')
@@ -37,13 +42,24 @@ def get_stock_price(symbol):
         'apikey': ALPHA_VANTAGE_API_KEY
     }
     response = requests.get(BASE_URL, params=params)
-    data = response.json()
     
+    # Try to get stock data from Alpha Vantage
     try:
+        data = response.json()
         latest_time = list(data['Time Series (1min)'].keys())[0]
         latest_price = data['Time Series (1min)'][latest_time]['4. close']
         return latest_price
-    except KeyError:
+    except (KeyError, requests.exceptions.RequestException):
+        # If an error occurs (e.g., rate limit exceeded), fall back to Yahoo Finance
+        return get_stock_price_fallback(symbol)
+
+# Fallback function using Yahoo Finance (yfinance)
+def get_stock_price_fallback(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        latest_price = stock.history(period="1d")['Close'][0]
+        return round(latest_price, 2)  # Return price rounded to 2 decimal places
+    except Exception as e:
         return None
 
 # Helper function to get market news from NewsAPI
@@ -101,4 +117,3 @@ scheduler.start()
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
-
